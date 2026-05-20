@@ -23,8 +23,8 @@ shifts).  Produces side-by-side heatmaps so both methods can be compared on equa
 terms.
 
 Key differences between the two envelope types:
-  CUA:       aligned_envelopes_improved / R|S / mag / dist / CUA_H.npy, CUA_Z.npy
-  Synthetic: synthetic_4_8             / R|S / mag / dist / median_envelope_horizontal.npy, median_envelope_vertical.npy
+  CUA:       syn_cua_env / R|S / mag / dist / CUA_H.npy, CUA_Z.npy
+  Synthetic: syn_cua_env / R|S / mag / dist / ML_H.npy, ML_Z.npy
 
 Station counter: a station contributes to the count for a given cell only when AT
 LEAST ONE of the observed or synthetic envelope has signal (i.e. noise-vs-noise
@@ -703,11 +703,11 @@ def plot_envelope_comparison_per_station(
         ('H', 'Horizontal_combined',
          ['envelope_HLE_HLN.npy', 'envelope_HNE_HNN.npy'],
          ['envelope_HLE_HLN_meta.json', 'envelope_HNE_HNN_meta.json'],
-         'CUA_H.npy', 'median_envelope_horizontal.npy'),
+         'CUA_H.npy', 'ML_H.npy'),
         ('Z', 'Vertical',
          ['envelope_HLZ.npy', 'envelope_HNZ.npy'],
          ['envelope_HLZ_meta.json', 'envelope_HNZ_meta.json'],
-         'CUA_Z.npy', 'median_envelope_vertical.npy'),
+         'CUA_Z.npy', 'ML_Z.npy'),
     ]
 
     # ---- Pre-load envelopes for both components ----
@@ -942,7 +942,7 @@ def main():
     MAGNITUDE_ERRORS = np.arange(-1.5, 1.55, 0.1)
 
     # Both CUA and synthetic templates now live in the same unified tree:
-    # SYN_CUA_ENV / R|S / mag / dist / {CUA_H.npy, CUA_Z.npy, median_envelope_*.npy}
+    # SYN_CUA_ENV / R|S / mag / dist / {CUA_H.npy, CUA_Z.npy, ML_H.npy, ML_Z.npy}
     cua_dirs = {
         'R': os.path.join(SYN_CUA_ENV, 'R'),
         'S': os.path.join(SYN_CUA_ENV, 'S'),
@@ -1099,8 +1099,8 @@ def main():
                     tiff_path=vs30_tiff,
                     skip_vs30_lookup=SKIP_VS30_LOOKUP,
                     n_random_tries=N_RANDOM_TRIES,
-                    envelope_filename_h='median_envelope_horizontal.npy',
-                    envelope_filename_z='median_envelope_vertical.npy',
+                    envelope_filename_h='ML_H.npy',
+                    envelope_filename_z='ML_Z.npy',
                     random_angles=random_angles,
                 )
 
