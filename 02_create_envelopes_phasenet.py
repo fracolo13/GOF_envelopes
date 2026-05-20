@@ -19,8 +19,9 @@ PROCESSED_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/oper
 ENVELOPES_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_envelopes'   # output of this script              → input to 03
 
 # Synthetic template libraries (used by 03_combined_CUA_synthetic_heatmap_comparison.py)
-CUA_BASE       = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/aligned_envelopes_improved'
-SYNTHETIC_BASE = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/synthetic_4_8'
+SYN_CUA_ENV    = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/syn_cua_env'
+CUA_BASE       = SYN_CUA_ENV + '/aligned_envelopes_improved'
+SYNTHETIC_BASE = SYN_CUA_ENV + '/synthetic_4_8'
 # ============================================================================
 
 """

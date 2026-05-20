@@ -8,8 +8,9 @@ event_ids = ["20190705_M7.1_Ridgecrest", "20140824_M6.0_SouthNapa", "20240403_M7
 DATA_BASE      = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data'
 DATA_DIR       = DATA_BASE + '/maren_eq'                       # raw input files (mseed, xml, json, distance CSVs)
 ENVELOPES_DIR  = DATA_BASE + '/operational_envelopes'          # observed envelopes from 02_create_envelopes_phasenet.py
-CUA_BASE       = DATA_BASE + '/aligned_envelopes_improved'     # CUA synthetic template library
-SYNTHETIC_BASE = DATA_BASE + '/synthetic_4_8'                  # standard synthetic template library
+SYN_CUA_ENV    = DATA_BASE + '/syn_cua_env'                    # parent directory for all synthetic template libraries
+CUA_BASE       = SYN_CUA_ENV + '/aligned_envelopes_improved'   # CUA synthetic template library
+SYNTHETIC_BASE = SYN_CUA_ENV + '/synthetic_4_8'                # standard synthetic template library
 RESULTS_BASE   = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/results/operational_results'
 # ============================================================================
 
