@@ -8,9 +8,8 @@ event_ids = ["20190705_M7.1_Ridgecrest", "20140824_M6.0_SouthNapa", "20240403_M7
 DATA_BASE      = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data'
 DATA_DIR       = DATA_BASE + '/maren_eq'                       # raw input files (mseed, xml, json, distance CSVs)
 ENVELOPES_DIR  = DATA_BASE + '/operational_envelopes'          # observed envelopes from 02_create_envelopes_phasenet.py
-SYN_CUA_ENV    = DATA_BASE + '/syn_cua_env'                    # parent directory for all synthetic template libraries
-CUA_BASE       = SYN_CUA_ENV + '/aligned_envelopes_improved'   # CUA synthetic template library
-SYNTHETIC_BASE = SYN_CUA_ENV + '/synthetic_4_8'                # standard synthetic template library
+CUA_BASE       = DATA_BASE + '/aligned_envelopes_improved'     # CUA synthetic template library
+SYNTHETIC_BASE = DATA_BASE + '/synthetic_4_8'                  # standard synthetic template library
 RESULTS_BASE   = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/results/operational_results'
 # ============================================================================
 
@@ -942,13 +941,15 @@ def main():
     DISTANCE_OFFSETS = np.array([0, 5, 10, 20, 35, 50, 75, 100, 130])
     MAGNITUDE_ERRORS = np.arange(-1.5, 1.55, 0.1)
 
+    # Both CUA and synthetic templates now live in the same unified tree:
+    # SYN_CUA_ENV / R|S / mag / dist / {CUA_H.npy, CUA_Z.npy, median_envelope_*.npy}
     cua_dirs = {
-        'R': os.path.join(CUA_BASE, 'R'),
-        'S': os.path.join(CUA_BASE, 'S'),
+        'R': os.path.join(SYN_CUA_ENV, 'R'),
+        'S': os.path.join(SYN_CUA_ENV, 'S'),
     }
     syn_dirs = {
-        'R': os.path.join(SYNTHETIC_BASE, 'R'),
-        'S': os.path.join(SYNTHETIC_BASE, 'S'),
+        'R': os.path.join(SYN_CUA_ENV, 'R'),
+        'S': os.path.join(SYN_CUA_ENV, 'S'),
     }
 
     vs30_csv  = os.path.join(DATA_BASE, 'vs30_california', 'vs30data.csv')
