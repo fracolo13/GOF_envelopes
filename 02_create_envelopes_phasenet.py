@@ -14,9 +14,13 @@ event_id       = "20221025_M5.1_AlumRock"  # Change this to the desired event ID
 # - scedc: Southern California Earthquake Data Center
 PHASENET_MODEL = "stead"
 
-DATA_DIR      = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/maren_eq'
-PROCESSED_DIR = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_processed'
-ENVELOPES_DIR = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_envelopes'
+DATA_DIR       = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/maren_eq'
+PROCESSED_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_processed'  # output of 01_process_obs_mseed.py  → input here
+ENVELOPES_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_envelopes'   # output of this script              → input to 03
+
+# Synthetic template libraries (used by 03_combined_CUA_synthetic_heatmap_comparison.py)
+CUA_BASE       = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/aligned_envelopes_improved'
+SYNTHETIC_BASE = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/synthetic_4_8'
 # ============================================================================
 
 """

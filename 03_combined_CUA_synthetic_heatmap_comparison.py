@@ -5,10 +5,12 @@
 # ============================================================================
 event_ids = ["20190705_M7.1_Ridgecrest", "20140824_M6.0_SouthNapa", "20240403_M7.4_Hualien", "20250120_M6.0_Chiayii", "20230220_M6.4_Yayladagi"]
 
-DATA_BASE     = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data'
-DATA_DIR      = DATA_BASE + '/maren_eq'
-ENVELOPES_DIR = DATA_BASE + '/operational_envelopes'
-RESULTS_BASE  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/results/operational_results'
+DATA_BASE      = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data'
+DATA_DIR       = DATA_BASE + '/maren_eq'                       # raw input files (mseed, xml, json, distance CSVs)
+ENVELOPES_DIR  = DATA_BASE + '/operational_envelopes'          # observed envelopes from 02_create_envelopes_phasenet.py
+CUA_BASE       = DATA_BASE + '/aligned_envelopes_improved'     # CUA synthetic template library
+SYNTHETIC_BASE = DATA_BASE + '/synthetic_4_8'                  # standard synthetic template library
+RESULTS_BASE   = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/results/operational_results'
 # ============================================================================
 
 """
@@ -940,12 +942,12 @@ def main():
     MAGNITUDE_ERRORS = np.arange(-1.5, 1.55, 0.1)
 
     cua_dirs = {
-        'R': os.path.join(DATA_BASE, 'aligned_envelopes_improved', 'R'),
-        'S': os.path.join(DATA_BASE, 'aligned_envelopes_improved', 'S'),
+        'R': os.path.join(CUA_BASE, 'R'),
+        'S': os.path.join(CUA_BASE, 'S'),
     }
     syn_dirs = {
-        'R': os.path.join(DATA_BASE, 'synthetic_4_8', 'R'),
-        'S': os.path.join(DATA_BASE, 'synthetic_4_8', 'S'),
+        'R': os.path.join(SYNTHETIC_BASE, 'R'),
+        'S': os.path.join(SYNTHETIC_BASE, 'S'),
     }
 
     vs30_csv  = os.path.join(DATA_BASE, 'vs30_california', 'vs30data.csv')
