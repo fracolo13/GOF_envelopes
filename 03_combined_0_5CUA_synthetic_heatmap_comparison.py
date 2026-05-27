@@ -1,37 +1,29 @@
 #!/usr/bin/env python3
-
-# ============================================================================
-# CONFIGURATION  — edit these before running
-# ============================================================================
-event_ids = ["20190705_M7.1_Ridgecrest", "20140824_M6.0_SouthNapa", "20240403_M7.4_Hualien", "20250120_M6.0_Chiayii", "20230220_M6.4_Yayladagi"]
-
-DATA_BASE      = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data'
-DATA_DIR       = DATA_BASE + '/maren_eq'                       # raw input files (mseed, xml, json, distance CSVs)
-ENVELOPES_DIR  = DATA_BASE + '/operational_envelopes'          # observed envelopes from 02_create_envelopes_phasenet.py
-CUA_BASE       = DATA_BASE + '/aligned_envelopes_improved'     # CUA synthetic template library
-SYNTHETIC_BASE = DATA_BASE + '/synthetic_4_8'                  # standard synthetic template library
-RESULTS_BASE   = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/results/operational_results'
-# ============================================================================
-
 """
-COMBINED CUA + Synthetic heatmap comparison.
+Combined CUA + Synthetic Heatmap Comparison
+============================================
 
-Runs both the CUA envelope comparison and the AZ_test (standard) synthetic
-envelope comparison against the SAME observed data, using the SAME wrong-source
-parameters (same magnitude errors, same distance offsets, same random epicentre
-shifts).  Produces side-by-side heatmaps so both methods can be compared on equal
-terms.
+Runs both the CUA envelope comparison and the standard synthetic envelope
+comparison against the SAME observed data, using the SAME wrong-source
+parameters (magnitude errors, distance offsets, random epicentre shifts).
+
+This produces side-by-side heatmaps so both methods can be compared on equal terms.
 
 Key differences between the two envelope types:
-  CUA:       syn_cua_env / R|S / mag / dist / CUA_H.npy, CUA_Z.npy
-  Synthetic: syn_cua_env / R|S / mag / dist / ML_H.npy, ML_Z.npy
+  CUA:       CUA_BASE / {mag} / {dist} / CUA_H.npy, CUA_Z.npy
+  Synthetic: SYNTHETIC_BASE / R|S / {mag} / {dist} / ML_H.npy, ML_Z.npy
 
-Station counter: a station contributes to the count for a given cell only when AT
-LEAST ONE of the observed or synthetic envelope has signal (i.e. noise-vs-noise
+Station counter: A station contributes to the count for a given cell only when
+AT LEAST ONE of the observed or synthetic envelope has signal (noise-vs-noise
 pairs are excluded entirely).
 
-Output: high-resolution (300 dpi) heatmap images suitable for posters.
-Distance bins go up to 130 km.
+Output: High-resolution (300 dpi) heatmap images suitable for posters.
+
+Usage:
+    python 03_combined_0_5CUA_synthetic_heatmap_comparison.py
+    
+Configuration:
+    Edit event_ids list and config.py paths before running.
 """
 
 import numpy as np
@@ -49,6 +41,31 @@ from rasterio.transform import rowcol
 import requests
 import json
 import re
+import sys
+
+# Import configuration
+from config import (
+    DATA_DIR,
+    ENVELOPES_DIR,
+    CUA_BASE,
+    SYNTHETIC_BASE,
+    RESULTS_DIR,
+    VS30_CSV,
+    VS30_TIFF,
+    MAGNITUDE_ERRORS,
+    DISTANCE_OFFSETS_KM,
+    TIME_WINDOWS_S,
+    N_RANDOM_TRIES,
+    P_WAVE_VELOCITY_KM_S,
+    VS30_THRESHOLD,
+    get_event_paths,
+)
+
+# ============================================================================
+# CONFIGURATION  — edit these before running
+# ============================================================================
+event_ids = ["20190705_M7.1_Ridgecrest", "20140824_M6.0_SouthNapa", 
+             "20240403_M7.4_Hualien", "20250120_M6.0_Chiayii", "20230220_M6.4_Yayladagi"]
 
 # ============================================================================
 # HELPER FUNCTIONS (shared between CUA and Synthetic processing)
@@ -59,12 +76,17 @@ def load_station_data(csv_path):
     return pd.read_csv(csv_path)
 
 
-def load_vs30_data(vs30_csv_path):
+def load_vs30_data(vs30_csv_path=None):
     """Load VS30 data from CSV file."""
+    if vs30_csv_path is None:
+        vs30_csv_path = VS30_CSV
     return pd.read_csv(vs30_csv_path)
 
 
 def get_vs30_from_tiff(tiff_path, lat, lon):
+    """Get VS30 value from TIFF file at given coordinates."""
+    if tiff_path is None:
+        tiff_path = VS30_TIFF
     try:
         with rasterio.open(tiff_path) as src:
             row, col = rowcol(src.transform, lon, lat)
@@ -101,16 +123,21 @@ def get_vs30_from_esm(lat, lon):
         return None
     except Exception as e:
         print(f"  -> ESM database error at ({lat:.4f}, {lon:.4f}): {str(e)}")
-        return None
-
-
-def get_station_site_type(station_code, vs30_df, station_info=None, tiff_path=None,
-                          allow_default=True, skip_lookup=False):
+    """
+    Determine station site type (R=rock, S=soil) based on VS30 value.
+    
+    Uses threshold from config.VS30_THRESHOLD (default 450 m/s).
+    """
     if skip_lookup:
         parts = station_code.split('.')
         if len(parts) == 2:
             network, station = parts
             station_match = vs30_df[vs30_df['Network/Station Code'].str.contains(
+                f'{network}.{station}', na=False, case=False)]
+            if not station_match.empty:
+                vs30_value = station_match.iloc[0]['Vs30 (m/s)']
+                if pd.notna(vs30_value):
+                    return 'S' if vs30_value < VS30_THRESHOLDrk/Station Code'].str.contains(
                 f'{network}.{station}', na=False, case=False)]
             if not station_match.empty:
                 vs30_value = station_match.iloc[0]['Vs30 (m/s)']

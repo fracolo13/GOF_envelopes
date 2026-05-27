@@ -1,49 +1,41 @@
 
 #!/usr/bin/env python3
-
-# ============================================================================
-# CONFIGURATION  — edit these before running
-# ============================================================================
-event_id       = "20221025_M5.1_AlumRock"  # Change this to the desired event ID
-
-# PhaseNet model selection
-# Available models: "instance", "original", "geofon", "scedc"
-# - instance: INSTANCE dataset (diverse, good for M5-7.5 range)
-# - original: STEAD dataset (original PhaseNet)
-# - geofon: GEOFON data (global events)
-# - scedc: Southern California Earthquake Data Center
-PHASENET_MODEL = "stead"
-
-DATA_DIR       = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/maren_eq'
-PROCESSED_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_processed'  # output of 01_process_obs_mseed.py  → input here
-ENVELOPES_DIR  = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_envelopes'   # output of this script              → input to 03
-
-# Unified template library (used by 03_combined_CUA_synthetic_heatmap_comparison.py)
-# Structure: SYN_CUA_ENV / R|S / mag / dist / {CUA_H.npy, CUA_Z.npy, ML_H.npy, ML_Z.npy}
-SYN_CUA_ENV    = '/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/syn_cua_env'
-# ============================================================================
-
 """
-Compute vertical and combined horizontal envelopes per station from a processed
-miniSEED file and save them in a directory structure:
+Create Observed Envelopes with PhaseNet P-Wave Picking
+=======================================================
 
-  <output_dir>/<NETWORK.STATION>/Vertical/envelope.npy
-  <output_dir>/<NETWORK.STATION>/Horizontal_combined/envelope.npy
+This script computes vertical and combined horizontal envelopes per station from
+processed miniSEED files. It uses PhaseNet for automatic P-wave arrival picking
+and saves envelopes in a structured directory format.
 
-This follows the envelope logic present in `envelope_source.txt` and the
-existing helper functions.
+Workflow:
+1. Load processed miniSEED traces
+2. For each station, identify vertical and horizontal channels
+3. Use PhaseNet to pick P-wave arrivals (with TauP constraint)
+4. Compute envelopes (max absolute value per second)
+5. Crop envelopes around P-wave arrival (60s window)
+6. Save envelopes with metadata
+
+Output Structure:
+-----------------
+ENVELOPES_DIR/
+└── envelopes_{event_name}/
+    └── {NETWORK.STATION}/
+        ├── Vertical/
+        │   ├── envelope_HNZ.npy (or envelope_HLZ.npy)
+        │   └── envelope_HNZ_meta.json
+        └── Horizontal_combined/
+            ├── envelope_HNE_HNN.npy (or envelope_HLE_HLN.npy)
+            └── envelope_HNE_HNN_meta.json
 
 Usage:
-  python create_envelopes_chino_hills.py --mseed /path/to/chino_hills_processed.ms \
-      --output /path/to/output_dir --limit-stations 1
-
-The script is conservative about assumptions:
-- Station identifier used is NETWORK.STATION (e.g. CI.ASCO)
-- Horizontal components are identified by channel not ending with 'Z'
-- Vertical is identified by channel ending with 'Z'
-- Envelopes are computed as maximum absolute value per second (integer seconds)
-
+    python 04_create_envelopes_phasenet.py
+    
+Configuration:
+    Edit event_id and PHASENET_MODEL in this script
+    Adjust paths in config.py
 """
+
 import argparse
 import os
 from pathlib import Path
@@ -58,6 +50,32 @@ from obspy import UTCDateTime
 from obspy.taup import TauPyModel
 import seisbench.models as sbm
 import matplotlib.pyplot as plt
+import sys
+
+# Import configuration
+from config import (
+    DATA_DIR,
+    PROCESSED_DIR,
+    ENVELOPES_DIR,
+    PHASENET_MODEL,
+    P_WAVE_VELOCITY_KM_S,
+    ENVELOPE_WINDOW_S,
+    get_event_paths,
+)
+
+# ============================================================================
+# CONFIGURATION  — edit these before running
+# ============================================================================
+event_id = "20221025_M5.1_AlumRock"  # Change this to the desired event ID
+
+# PhaseNet model selection
+# Available models: "instance", "original", "geofon", "scedc", "stead"
+# - instance: INSTANCE dataset (diverse, good for M5-7.5 range)
+# - original: STEAD dataset (original PhaseNet)
+# - geofon: GEOFON data (global events)
+# - scedc: Southern California Earthquake Data Center
+# - stead: STEAD dataset (recommended for general use)
+PHASENET_MODEL_OVERRIDE = None  # Set to override config.PHASENET_MODEL, or None to use config
 
 
 def envelope_of_trace(trace):
@@ -88,16 +106,20 @@ def calc_root_mean_squared_comb(h1, h2):
 
 
 def compute_p_travel_time_seconds(distance_km, depth_km, model):
-    """Return P-wave travel time in seconds using TauPyModel (iasp91).
+    """
+    Return P-wave travel time in seconds using TauPyModel (iasp91).
     For very short distances (<1 degree / ~111 km), TauP may not work well,
-    so we use a simple velocity model: hypocentral_dist / 6.0 km/s as fallback.
-    distance_km -> degrees (approx 111.19 km per degree)."""
+    so we use a simple velocity model as fallback.
+    
+    Uses P_WAVE_VELOCITY_KM_S from config (default 6.0 km/s).
+    """
     try:
         deg = float(distance_km) / 111.19
         # For very short distances, TauP may not return arrivals - use simple velocity model
         if deg < 1.0:
-            # Simple crustal P-wave velocity: 6.0 km/s
-            # Hypocentral distance = sqrt(epicentral_distance^2 + depth^2)
+            # Simple crustal P-wave velocity from config
+            travel_time = float(distance_km) / P_WAVE_VELOCITY_KM_S
+            return travel_time
             # But we're already given hypocentral_distance_km
             p_velocity_km_s = 6.0
             travel_time = float(distance_km) / p_velocity_km_s
@@ -105,23 +127,24 @@ def compute_p_travel_time_seconds(distance_km, depth_km, model):
         
         arrivals = model.get_travel_times(source_depth_in_km=float(depth_km),
                                           distance_in_degree=deg,
-                                          phase_list=["P"])
-        if arrivals:
-            return arrivals[0].time
-        # If no arrivals even for longer distance, fallback to velocity model
-        p_velocity_km_s = 6.0
-        travel_time = float(distance_km) / p_velocity_km_s
+        travel_time = float(distance_km) / P_WAVE_VELOCITY_KM_S
         return travel_time
     except Exception:
         # Last resort fallback
         try:
-            p_velocity_km_s = 6.0
-            return float(distance_km) / p_velocity_km_s
+            return float(distance_km) / P_WAVE_VELOCITY_KM_S
         except:
             return None
 
 
-def crop_envelope_by_p(env_array, trace_starttime, event_origin_time, p_travel_time, window_length_s=60):
+def crop_envelope_by_p(env_array, trace_starttime, event_origin_time, p_travel_time, window_length_s=None):
+    """
+    Store P-wave timing metadata for envelope WITHOUT cropping to maintain absolute time.
+    
+    Uses ENVELOPE_WINDOW_S from config (default 60s) if window_length_s not provided.
+    """
+    if window_length_s is None:
+        window_length_s = ENVELOPE_WINDOW_Sp_envelope_by_p(env_array, trace_starttime, event_origin_time, p_travel_time, window_length_s=60):
     """Store P-wave timing metadata for envelope WITHOUT cropping to maintain absolute time.
     trace_starttime and event_origin_time are UTCDateTime objects. env_array is per-second.
     Returns original envelope array and metadata (dict) with absolute timing information.
@@ -661,18 +684,25 @@ def process_station(traces, out_base, station_df=None, model=None, event_origin_
 
 
 def main():
-    # Extract short name from event_id and convert CamelCase to snake_case
-    # e.g., "20140824_M6.0_SouthNapa" -> "south_napa", "20080729_M5.4_ChinoHills" -> "chino_hills"
-    event_name = event_id.split('_')[-1]  # Get the last part (e.g., "SouthNapa", "ChinoHills")
-    # Convert CamelCase to snake_case
-    import re
-    short_name = re.sub(r'(?<!^)(?=[A-Z])', '_', event_name).lower()
+    """Main function to create envelopes from processed traces."""
+    print("=" * 80)
+    print("ENVELOPE CREATION")
+    print("=" * 80)
+    print(f"Event ID: {event_id}")
+    print()
+    
+    # Get event paths using config helper
+    event_paths = get_event_paths(event_id)
+    short_name = event_paths['short_name']
     
     # Construct file paths based on event ID
-    default_mseed = os.path.join(PROCESSED_DIR, f'processed_traces_{short_name}', 'processed.ms')
-    default_output = os.path.join(ENVELOPES_DIR, f'{short_name}_envelope')
-    default_station_csv = os.path.join(DATA_DIR, f'station_distance_table_{event_id}.csv')
-    default_event_json = os.path.join(DATA_DIR, f'{event_id}.json')
+    default_mseed = os.path.join(event_paths['processed_dir'], 'processed.ms')
+    default_output = os.path.join(ENVELOPES_DIR, f'envelopes_{short_name}')
+    default_station_csv = event_paths['distance_csv']
+    default_event_json = event_paths['event_info']
+    
+    # Use PHASENET_MODEL from config or override
+    model_to_use = PHASENET_MODEL_OVERRIDE if PHASENET_MODEL_OVERRIDE else PHASENET_MODEL
     
     parser = argparse.ArgumentParser(description="Create envelopes for processed traces")
     parser.add_argument('--mseed', required=False,
@@ -692,27 +722,31 @@ def main():
 
     args = parser.parse_args()
     
-    print("=" * 80)
-    print("ENVELOPE CREATION")
-    print("=" * 80)
-    print(f"Event ID: {event_id}")
-    print(f"Short name: {short_name}")
-    print()
     print(f"File paths:")
     print(f"  MSEED:       {args.mseed}")
     print(f"  Output:      {args.output}")
     print(f"  Station CSV: {args.station_csv}")
     print(f"  Event JSON:  {args.event_json}")
+    print(f"  PhaseNet Model: {model_to_use}")
     print()
     
     # Check if files exist
+    missing_files = []
     if not os.path.exists(args.mseed):
-        print(f"❌ MSEED file not found: {args.mseed}")
-        return
+        missing_files.append(f"  ✗ MSEED: {args.mseed}")
     if not os.path.exists(args.station_csv):
-        print(f"⚠️  Station CSV not found: {args.station_csv}")
+        missing_files.append(f"  ⚠️  Station CSV: {args.station_csv}")
     if not os.path.exists(args.event_json):
-        print(f"⚠️  Event JSON not found: {args.event_json}")
+        missing_files.append(f"  ⚠️  Event JSON: {args.event_json}")
+    
+    if missing_files:
+        for msg in missing_files:
+            print(msg)
+        if not os.path.exists(args.mseed):
+            print("\n❌ Required MSEED file not found. Exiting.")
+            sys.exit(1)
+    else:
+        print("✓ All input files found")
     print()
 
     print(f"Reading mseed: {args.mseed}")
@@ -762,14 +796,14 @@ def main():
         except Exception as e:
             print(f"Failed to initialize TauPyModel: {e}")
 
-    # Load PhaseNet model (instance variant trained on M5-7.5 range)
+    # Load PhaseNet model (using config or override)
     phasenet_model = None
     try:
-        print(f"\nLoading PhaseNet model ({PHASENET_MODEL})...")
-        phasenet_model = sbm.PhaseNet.from_pretrained(PHASENET_MODEL)
-        print(f"✓ PhaseNet model '{PHASENET_MODEL}' loaded successfully")
+        print(f"\nLoading PhaseNet model ({model_to_use})...")
+        phasenet_model = sbm.PhaseNet.from_pretrained(model_to_use)
+        print(f"✓ PhaseNet model '{model_to_use}' loaded successfully")
     except Exception as e:
-        print(f"⚠️  Failed to load PhaseNet model '{PHASENET_MODEL}': {e}")
+        print(f"⚠️  Failed to load PhaseNet model '{model_to_use}': {e}")
         print("   Will use AIC/STA-LTA fallback only")
 
     # Store pick information for all stations
@@ -793,7 +827,7 @@ def main():
         
         # Print statistics
         print("\n" + "="*80)
-        print(f"PICKING STATISTICS - PhaseNet Model: {PHASENET_MODEL}")
+        print(f"PICKING STATISTICS - PhaseNet Model: {model_to_use}")
         print("="*80)
         total_stations = len(picks_df)
         

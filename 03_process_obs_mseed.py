@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
+"""
+Process Observed MSEED Data
+============================
 
-# ============================================================================
-# CONFIGURATION  — edit these before running
-# ============================================================================
-event_id    = "20221025_M5.1_AlumRock"  # Change this to the desired event ID
+This script processes raw seismic data (miniSEED files) by:
+1. Filtering out traces with zeros/NaN/Inf
+2. Removing instrument response
+3. Demeaning and detrending
+4. Filtering by distance
+5. Removing clipped signals using enhanced detection
+6. Saving only HN/HL channels
 
-DATA_DIR    = "/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/maren_eq"
-OUTPUT_BASE = "/Users/francescoacolosimo/Desktop/SED/envelopes_test/data/operational_processed"
-# ============================================================================
+Output:
+- processed.ms: Processed traces in miniSEED format
+- processed_stations.txt: List of successfully processed station codes
+- trace_metadata.json: Metadata including absolute start times for each trace
+
+Usage:
+    python 03_process_obs_mseed.py
+    
+Configuration:
+    Edit event_id in this script and adjust paths in config.py
+"""
 
 import obspy
 from obspy import read, read_inventory
@@ -15,6 +29,22 @@ import pandas as pd
 import numpy as np
 import os
 import matplotlib.pyplot as plt
+import sys
+
+# Import configuration
+from config import (
+    DATA_DIR,
+    PROCESSED_DIR,
+    MAX_DISTANCE_KM,
+    CLIP_THRESHOLD,
+    ZERO_FRAC_THRESHOLD,
+    get_event_paths,
+)
+
+# ============================================================================
+# CONFIGURATION  — edit these before running
+# ============================================================================
+event_id = "20221025_M5.1_AlumRock"  # Change this to the desired event ID
 
 def is_clipped(trace, clip_threshold=0.95, window_size=10):
     """
@@ -53,31 +83,36 @@ def process_traces(
     mseed_file,
     xml_file,
     distance_file,
-    max_distance=200,
+    max_distance=None,
     output_dir="processed_traces",
-    clip_threshold=0.95,
-    zero_frac_threshold=0.50,  # Increased from 0.05 to 0.50 (50%) - allow more zeros
+    clip_threshold=None,
+    zero_frac_threshold=None,
     plot_skipped=False,
     max_plots=10
 ):
     """
-        Process seismic traces with the following steps:
-        1. Filter out traces with zeros/NaN/Inf (to avoid issues during response removal)
-        2. Remove instrument response
-        3. Demean and detrend
-        4. Filter by distance
-        5. Remove clipped signals using enhanced detection
-        6. Save only HN/HL channels
+    Process seismic traces with the following steps:
+    1. Filter out traces with zeros/NaN/Inf (to avoid issues during response removal)
+    2. Remove instrument response
+    3. Demean and detrend
+    4. Filter by distance
+    5. Remove clipped signals using enhanced detection
+    6. Save only HN/HL channels
 
-        Parameters:
-        - clip_threshold: threshold relative to max amplitude (0.95 = 95% of max)
-                - (repeats detection removed) repeated-value clipping is no longer used; traces
-                    with zeros/NaN/Inf are filtered before response removal.
-        - zero_frac_threshold: fraction of samples that are exactly zero above which a trace
-            will be skipped. Default 0.50 => skip traces with >50% zeros (was 0.05).
-        - plot_skipped: if True, plot the first max_plots skipped traces
-        - max_plots: maximum number of skipped traces to plot
+    Parameters:
+    - max_distance: maximum hypocentral distance in km (default: from config)
+    - clip_threshold: threshold relative to max amplitude (default: from config)
+    - zero_frac_threshold: fraction of zero samples allowed (default: from config)
+    - plot_skipped: if True, plot the first max_plots skipped traces
+    - max_plots: maximum number of skipped traces to plot
     """
+    # Use config defaults if not provided
+    if max_distance is None:
+        max_distance = MAX_DISTANCE_KM
+    if clip_threshold is None:
+        clip_threshold = CLIP_THRESHOLD
+    if zero_frac_threshold is None:
+        zero_frac_threshold = ZERO_FRAC_THRESHOLD
     # Read distance information
     df_dist = pd.read_csv(distance_file)
     stations_within_distance = set(
@@ -207,30 +242,22 @@ def process_traces(
             }
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
-        print(f"Saved trace metadata with absolute times to {metadata_file}")
-    else:
-        print("No traces remained after processing!")
-
-if __name__ == "__main__":
-    # Extract short name from event_id and convert CamelCase to snake_case
-    # e.g., "20140824_M6.0_SouthNapa" -> "south_napa", "20080729_M5.4_ChinoHills" -> "chino_hills"
-    event_name = event_id.split('_')[-1]  # Get the last part (e.g., "SouthNapa", "ChinoHills")
-    # Convert CamelCase to snake_case
-    import re
-    short_name = re.sub(r'(?<!^)(?=[A-Z])', '_', event_name).lower()
-    
-    # Construct file paths based on event ID
-    mseed_file = os.path.join(DATA_DIR, f"{event_id}.ms")
-    xml_file = os.path.join(DATA_DIR, f"{event_id}.xml")
-    distance_file = os.path.join(DATA_DIR, f"station_distance_table_{event_id}.csv")
-    output_dir = os.path.join(OUTPUT_BASE, f"processed_traces_{short_name}")
-    
     print("="*80)
     print("TRACE PROCESSING")
     print("="*80)
     print(f"Event ID: {event_id}")
-    print(f"Short name: {short_name}")
     print()
+    
+    # Get event paths using config helper
+    event_paths = get_event_paths(event_id)
+    short_name = event_paths['short_name']
+    
+    # Construct file paths
+    mseed_file = event_paths['mseed']
+    xml_file = event_paths['xml']
+    distance_file = event_paths['distance_csv']
+    output_dir = event_paths['processed_dir']
+    
     print(f"File paths:")
     print(f"  MSEED:    {mseed_file}")
     print(f"  XML:      {xml_file}")
@@ -239,15 +266,32 @@ if __name__ == "__main__":
     print()
     
     # Check if files exist
+    missing_files = []
     if not os.path.exists(mseed_file):
-        print(f"❌ MSEED file not found: {mseed_file}")
-        exit(1)
+        missing_files.append(f"  ✗ MSEED: {mseed_file}")
     if not os.path.exists(xml_file):
-        print(f"❌ XML file not found: {xml_file}")
-        exit(1)
+        missing_files.append(f"  ✗ XML: {xml_file}")
     if not os.path.exists(distance_file):
-        print(f"❌ Distance file not found: {distance_file}")
-        exit(1)
+        missing_files.append(f"  ✗ Distance CSV: {distance_file}")
+    
+    if missing_files:
+        print("❌ Missing required files:")
+        for msg in missing_files:
+            print(msg)
+        sys.exit(1)
+    
+    print("✓ All input files found")
+    print()
+    
+    # Process the traces with plotting of skipped traces
+    process_traces(mseed_file, xml_file, distance_file, output_dir=output_dir, 
+                   plot_skipped=True, max_plots=10)
+    
+    print()
+    print("="*80)
+    print("PROCESSING COMPLETE")
+    print(f"Output saved to: {output_dir}")
+    print("="*8
     print()
     
     # Process the traces with plotting of skipped traces
