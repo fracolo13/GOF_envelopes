@@ -29,6 +29,14 @@ The workflow is designed to run on two environments:
 - **Cluster (Euler/HPC)**: Scripts 01-02 for synthetic generation
 - **Local (MacBook/Desktop)**: Scripts 03-05 for observed data processing and analysis
 
+### Generative Model
+
+The synthetic waveform generation (scripts 01-02) uses the **TQDNE** (Time-dependent Quantized Diffusion Neural Earthquake) model:
+
+🔗 **Repository:** [https://github.com/highfem/tqdne.git](https://github.com/highfem/tqdne.git)
+
+TQDNE is a deep learning model for generating realistic synthetic seismic waveforms based on fault geometry and rupture parameters.
+
 ---
 
 ## Installation
@@ -38,9 +46,15 @@ The workflow is designed to run on two environments:
 **Cluster Environment (Scripts 01-02):**
 ```bash
 # Python 3.8+
-# TQDNE model and dependencies
+# TQDNE model and dependencies (https://github.com/highfem/tqdne.git)
 # ObsPy
 # Pandas, NumPy, H5Py
+
+# Install TQDNE
+git clone https://github.com/highfem/tqdne.git
+cd tqdne
+pip install -e .
+# Download model weights (follow TQDNE repository instructions)
 ```
 
 **Local Environment (Scripts 03-05):**
