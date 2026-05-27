@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""
+Script to process HDF5 envelope data and generate median envelopes
+for magnitude-distance combinations.
+
+This script:
+1. Reads HDF5 data and matches with metadata
+2. Calculates combined horizontal and vertical envelopes
+3. Groups by magnitude and distance (100 realisations each)
+4. Calculates median envelopes
+5. Saves to folder structure: S/M{magnitude}/D{distance}/
+"""
+
+import h5py
+import numpy as np
+import pandas as pd
+import os
+from pathlib import Path
+
+def extract_azimuth_tag(filename):
+    for part in filename.split('_'):
+        if part.startswith("AZ"):
+            return part.replace(".hdf5", "")
+    raise ValueError(f"No AZ tag found in filename: {filename}")
+
+
+def calc_root_mean_squared_comb(horComps):
+    """
+    Calculate the root mean squared combination of envelopes of two horizontal components.
+    This function takes two horizontal components of seismic data and computes
+    the root mean squared (RMS) combination for each corresponding pair of values
+    from the two components. The RMS combination is calculated as:
+        sqrt((x1^2 + x2^2) / 2)
+    
+    Parameters:
+    -----------
+    horComps : list of numpy.ndarray
+        A list where each element contains two numpy arrays, where each array represents one horizontal
+        component of the waveform envelope. The function assumes that the two arrays may have different lengths
+        and will process up to the length of the shorter array.
+    
+    Returns:
+    --------
+    combinedHorizontal : numpy.ndarray
+        An array containing the RMS combination values for the two horizontal components.
+        The length of the returned array is equal to the length of the shorter input array.
+    """
+    combinedHorizontal = []
+    combLen = np.min([len(horComps[0]), len(horComps[1])])
+    
+    for i in range(combLen):
+        value = np.square(horComps[0][i]) + np.square(horComps[1][i])
+        value = np.sqrt(value/2)
+        combinedHorizontal.append(value)
+        
+    return np.array(combinedHorizontal)
+
+
+def calculate_envelope_from_waveform(waveform_data, sampling_rate=100):
+    """
+    Calculate the envelope of waveform data by finding the maximum value 
+    of the waveform data for each second.
+    
+    Parameters:
+    -----------
+    waveform_data : numpy.ndarray
+        The waveform data array
+    sampling_rate : int
+        Sampling rate in Hz (default: 100)
+    
+    Returns:
+    --------
+    numpy.ndarray
+        An array of maximum values calculated for each second of the waveform data.
+    """
+    envelope = []
+    for i in range(int(len(waveform_data) / sampling_rate)):
+        envelope.append(np.max(np.abs(waveform_data[i*sampling_rate:(i+1)*sampling_rate])))
+    return np.array(envelope)
+
+
+def process_envelopes(hdf5_file, metadata_file, output_base_dir):
+    """
+    Process envelope data from HDF5 file and save median envelopes by magnitude-distance groups.
+    
+    Parameters:
+    -----------
+    hdf5_file : str
+        Path to the HDF5 file containing waveform data
+    metadata_file : str
+        Path to the CSV file containing metadata
+    output_base_dir : str
+        Base directory for saving output files
+    """
+    
+    print(f"Loading data from {hdf5_file}...")
+    
+    # Load HDF5 data
+    with h5py.File(hdf5_file, 'r') as f:
+        waveforms = f['waveforms'][:]  # Shape: (N, 3, 4064) - N, E, Z components
+        hypocentral_distances = f['hypocentral_distance'][:]
+        magnitudes = f['magnitude'][:]
+        vs30s = f['vs30s'][:]
+        depths = f['hypocentre_depth'][:]
+    
+    print(f"Waveform data shape: {waveforms.shape}")
+    print(f"Number of traces: {waveforms.shape[0]}")
+    print(f"Components: {waveforms.shape[1]} (N, E, Z)")
+    print(f"Samples per trace: {waveforms.shape[2]}")
+    
+    # Load metadata
+    metadata = pd.read_csv(metadata_file)
+    print(f"Loaded metadata for {len(metadata)} entries")
+    
+    # Determine file type (R or S) from filename
+    file_type = 'S' if 'S' in os.path.basename(hdf5_file) else 'R'
+    print(f"Processing {file_type}-type data")
+    
+    # Create output directory structure including AZ
+    az_tag = extract_azimuth_tag(os.path.basename(hdf5_file))
+    
+    output_dir = (
+        Path(output_base_dir)
+        / file_type
+        / az_tag
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    
+    # Group data by magnitude and distance
+    unique_combinations = metadata[['source_magnitude', 'hypocentral_distance_km']].drop_duplicates()
+    print(f"Found {len(unique_combinations)} unique magnitude-distance combinations")
+    
+    sampling_rate = 100  # Hz
+    
+    for _, row in unique_combinations.iterrows():
+        magnitude = row['source_magnitude']
+        distance = row['hypocentral_distance_km']
+        
+        print(f"\nProcessing M{magnitude}, D={distance}km...")
+        
+        # Get indices for this magnitude-distance combination
+        mask = ((metadata['source_magnitude'] == magnitude) & 
+                (metadata['hypocentral_distance_km'] == distance))
+        indices = metadata[mask].index.tolist()
+        
+        if len(indices) == 0:
+            print(f"  No data found for M{magnitude}, D={distance}km")
+            continue
+            
+        print(f"  Found {len(indices)} realizations")
+        
+        # Collect waveforms for this combination
+        combination_waveforms = waveforms[indices]  # Shape: (realizations, 3, 4064)
+        
+        # Calculate envelopes for each realization
+        vertical_envelopes = []
+        horizontal_envelopes = []
+        
+        for i, waveform in enumerate(combination_waveforms):
+            # Extract components: N(0), E(1), Z(2)
+            north_component = waveform[0, :]
+            east_component = waveform[1, :]
+            vertical_component = waveform[2, :]
+            
+            # Calculate envelope for vertical component
+            vertical_envelope = calculate_envelope_from_waveform(vertical_component, sampling_rate)
+            vertical_envelopes.append(vertical_envelope)
+            
+            # Calculate envelope for horizontal components and combine them
+            north_envelope = calculate_envelope_from_waveform(north_component, sampling_rate)
+            east_envelope = calculate_envelope_from_waveform(east_component, sampling_rate)
+            
+            # Combine horizontal components using RMS
+            horizontal_envelope = calc_root_mean_squared_comb([north_envelope, east_envelope])
+            horizontal_envelopes.append(horizontal_envelope)
+        
+        # Convert to numpy arrays
+        vertical_envelopes = np.array(vertical_envelopes)
+        horizontal_envelopes = np.array(horizontal_envelopes)
+        
+        print(f"  Vertical envelopes shape: {vertical_envelopes.shape}")
+        print(f"  Horizontal envelopes shape: {horizontal_envelopes.shape}")
+        
+        # Calculate median envelopes
+        median_vertical = np.median(vertical_envelopes, axis=0)
+        median_horizontal = np.median(horizontal_envelopes, axis=0)
+        
+        print(f"  Median vertical envelope shape: {median_vertical.shape}")
+        print(f"  Median horizontal envelope shape: {median_horizontal.shape}")
+        
+        # Create output directory for this magnitude-distance combination
+        mag_dist_dir = output_dir / f"{magnitude:.1f}" / f"{int(distance)}"
+        mag_dist_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save median envelopes as .npy files
+        vertical_file = mag_dist_dir / "median_envelope_vertical.npy"
+        horizontal_file = mag_dist_dir / "median_envelope_horizontal.npy"
+        
+        np.save(vertical_file, median_vertical)
+        np.save(horizontal_file, median_horizontal)
+        
+        print(f"  Saved: {vertical_file}")
+        print(f"  Saved: {horizontal_file}")
+        
+        # Print first few values for verification
+        print(f"  Vertical envelope first 10 values: {median_vertical[:10]}")
+        print(f"  Horizontal envelope first 10 values: {median_horizontal[:10]}")
+
+
+def main():
+    """Main function to process envelope data."""
+
+    base_data_dir = '/cluster/scratch/fcolosimo/Data/envelopes'
+    output_base_dir = '/cluster/scratch/fcolosimo/Data/envelopes/output/synthetic_envelopes'
+
+    base_data_dir = Path(base_data_dir)
+
+    # Find all envelope files ending with AZ*.hdf5
+    envelope_files = sorted(base_data_dir.glob("envelopes_*_AZ*.hdf5"))
+
+    if not envelope_files:
+        print("No AZ envelope files found.")
+        return
+
+    print(f"Found {len(envelope_files)} AZ envelope files")
+
+    for hdf5_path in envelope_files:
+        hdf5_filename = hdf5_path.name
+
+        # Build matching metadata filename
+        # envelopes_S_4_75_AZ80.hdf5
+        # -> metadata_envelopes_S_4_75_AZ80.hdf5.csv
+        metadata_filename = hdf5_filename.replace(
+            "envelopes_", "metadata_envelopes_"
+        ) + ".csv"
+
+        metadata_path = base_data_dir / metadata_filename
+
+        print(f"\n{'='*60}")
+        print(f"Processing: {hdf5_filename}")
+        print(f"Expected metadata: {metadata_filename}")
+        print(f"{'='*60}")
+
+        if not metadata_path.exists():
+            print(f"⚠️  Metadata file not found, skipping:")
+            print(f"    {metadata_path}")
+            continue
+
+        try:
+            process_envelopes(
+                hdf5_file=str(hdf5_path),
+                metadata_file=str(metadata_path),
+                output_base_dir=output_base_dir
+            )
+            print(f"✅ Successfully processed {hdf5_filename}")
+
+        except Exception as e:
+            print(f"❌ Error processing {hdf5_filename}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    print(f"\n{'='*60}")
+    print("Processing complete!")
+    print(f"Output saved to: {output_base_dir}")
+    print(f"{'='*60}")
+
+if __name__ == "__main__":
+    main()
