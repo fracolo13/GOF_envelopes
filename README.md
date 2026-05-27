@@ -31,7 +31,7 @@ The workflow is designed to run on two environments:
 
 ### Generative Model
 
-The synthetic waveform generation (scripts 01-02) uses the **TQDNE** (Time-dependent Quantized Diffusion Neural Earthquake) model:
+The synthetic waveform generation (scripts 01-02) uses the **TQDNE HighFem** model:
 
 🔗 **Repository:** [https://github.com/highfem/tqdne.git](https://github.com/highfem/tqdne.git)
 
