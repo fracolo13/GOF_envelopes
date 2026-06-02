@@ -291,7 +291,7 @@ def process_traces(
     print("="*80)
     print("PROCESSING COMPLETE")
     print(f"Output saved to: {output_dir}")
-    print("="*8
+    print("="*8)
     print()
     
     # Process the traces with plotting of skipped traces
