@@ -85,8 +85,8 @@ if ENVIRONMENT == 'local':
     SYN_CUA_ENV = os.path.join(DATA_BASE, 'syn_cua_env')              # Unified template library
     
     # VS30 data paths
-    VS30_CSV = os.path.join(DATA_BASE, 'vs30', 'vs30_stations.csv')
-    VS30_TIFF = os.path.join(DATA_BASE, 'vs30', 'vs30.tif')
+    VS30_CSV = os.path.join(DATA_BASE, 'vs30_california', 'vs30data.csv')
+    VS30_TIFF = os.path.join(DATA_BASE, 'vs30_california', 'California_vs30_Wills15_hybrid.tif')
     
     # Results paths
     RESULTS_DIR = os.path.join(RESULTS_BASE, 'operational_results')

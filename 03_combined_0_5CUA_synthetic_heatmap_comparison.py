@@ -45,11 +45,14 @@ import sys
 
 # Import configuration
 from config import (
+    DATA_BASE,
     DATA_DIR,
     ENVELOPES_DIR,
     CUA_BASE,
     SYNTHETIC_BASE,
+    RESULTS_BASE,
     RESULTS_DIR,
+    SYN_CUA_ENV,
     VS30_CSV,
     VS30_TIFF,
     MAGNITUDE_ERRORS,
@@ -123,10 +126,20 @@ def get_vs30_from_esm(lat, lon):
         return None
     except Exception as e:
         print(f"  -> ESM database error at ({lat:.4f}, {lon:.4f}): {str(e)}")
+        return None
+
+
+def get_station_site_type(station_code, vs30_df, station_info=None, tiff_path=None, allow_default=True, skip_lookup=False):
     """
     Determine station site type (R=rock, S=soil) based on VS30 value.
-    
-    Uses threshold from config.VS30_THRESHOLD (default 450 m/s).
+
+    Uses threshold of 450 m/s (VS30 < 450 = Soil, >= 450 = Rock).
+
+    Priority order:
+    1. VS30 from CSV
+    2. VS30 from TIFF file (if tiff_path provided and skip_lookup=False)
+    3. VS30 from ESM database (if station_info provided and skip_lookup=False)
+    4. Default to Rock (R) with VS30=500 m/s if allow_default=True
     """
     if skip_lookup:
         parts = station_code.split('.')
@@ -137,12 +150,7 @@ def get_vs30_from_esm(lat, lon):
             if not station_match.empty:
                 vs30_value = station_match.iloc[0]['Vs30 (m/s)']
                 if pd.notna(vs30_value):
-                    return 'S' if vs30_value < VS30_THRESHOLDrk/Station Code'].str.contains(
-                f'{network}.{station}', na=False, case=False)]
-            if not station_match.empty:
-                vs30_value = station_match.iloc[0]['Vs30 (m/s)']
-                if pd.notna(vs30_value):
-                    return 'S' if vs30_value < 450 else 'R', vs30_value
+                    return 'S' if vs30_value < VS30_THRESHOLD else 'R', vs30_value
         if allow_default:
             return 'R', 500.0
         return None, None
@@ -979,10 +987,8 @@ def main():
         'S': os.path.join(SYN_CUA_ENV, 'S'),
     }
 
-    vs30_csv  = os.path.join(DATA_BASE, 'vs30_california', 'vs30data.csv')
-    vs30_tiff = os.path.join(DATA_BASE, 'vs30_california', 'California_vs30_Wills15_hybrid.tif')
-    if not os.path.exists(vs30_tiff):
-        vs30_tiff = None
+    vs30_csv  = VS30_CSV
+    vs30_tiff = VS30_TIFF if (VS30_TIFF and os.path.exists(VS30_TIFF)) else None
 
     vs30_df = load_vs30_data(vs30_csv)
 
@@ -1002,7 +1008,7 @@ def main():
         # -------------------------------------------------------------------------
         # Load event info
         # -------------------------------------------------------------------------
-        event_json_file = os.path.join(data_dir, f'{event_id}.json')
+        event_json_file = os.path.join(DATA_DIR, f'{event_id}.json')
         event_lat = event_lon = event_origin_time = None
         if os.path.exists(event_json_file):
             try:
